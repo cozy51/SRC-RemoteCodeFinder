@@ -19,6 +19,14 @@ const settingsFileIdKey = 'src-google-drive-settings-file-id';
 const emptySettings = (): Settings => ({ updatedAt: new Date(0).toISOString(), favorites: [], imageUrls: {}, notes: {} });
 const key = (favorite: Favorite) => `${favorite.mode}\u0000${favorite.code}`;
 const headers = (token: string) => ({ Authorization: `Bearer ${token}` });
+let mutationQueue: Promise<void> = Promise.resolve();
+
+// 設定ファイルへの変更を直列化し、同時操作が古い読み取り結果で新しい変更を上書きするのを防ぎます。
+function enqueueMutation<T>(mutation: () => Promise<T>): Promise<T> {
+  const result = mutationQueue.then(mutation, mutation);
+  mutationQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
 
 async function findAppFolder(token: string): Promise<string> {
   const storedId = localStorage.getItem(appFolderIdKey);
@@ -142,30 +150,36 @@ export async function loadCloudSettings(interactive = false): Promise<CloudSetti
 
 // 常に最新ファイルを読み、今回の操作だけを適用するため、古い画面状態による全上書きを避けます。
 export async function saveFavoriteChange(change: FavoriteChange): Promise<Favorite[]> {
-  const token = await getAccessToken(true);
-  const latest = await read(token);
-  const merged = new Map(latest.favorites.map((favorite) => [key(favorite), favorite]));
-  if (change.action === 'add') merged.set(key(change.favorite), change.favorite);
-  else merged.delete(key(change.favorite));
-  const settings: Settings = { ...latest, updatedAt: new Date().toISOString(), favorites: [...merged.values()] };
-  await write(token, settings);
-  return settings.favorites;
+  return enqueueMutation(async () => {
+    const token = await getAccessToken(true);
+    const latest = await read(token);
+    const merged = new Map(latest.favorites.map((favorite) => [key(favorite), favorite]));
+    if (change.action === 'add') merged.set(key(change.favorite), change.favorite);
+    else merged.delete(key(change.favorite));
+    const settings: Settings = { ...latest, updatedAt: new Date().toISOString(), favorites: [...merged.values()] };
+    await write(token, settings);
+    return settings.favorites;
+  });
 }
 
 export async function saveImageUrl(mode: RemoteMode, code: string, imageUrl: string | null): Promise<ImageUrls> {
-  const token = await getAccessToken(true);
-  const latest = await read(token);
-  const imageUrls = { ...latest.imageUrls, [key({ mode, code })]: imageUrl };
-  await write(token, { ...latest, updatedAt: new Date().toISOString(), imageUrls });
-  return imageUrls;
+  return enqueueMutation(async () => {
+    const token = await getAccessToken(true);
+    const latest = await read(token);
+    const imageUrls = { ...latest.imageUrls, [key({ mode, code })]: imageUrl };
+    await write(token, { ...latest, updatedAt: new Date().toISOString(), imageUrls });
+    return imageUrls;
+  });
 }
 
 export async function saveNote(mode: RemoteMode, code: string, note: string | null): Promise<NoteOverrides> {
-  const token = await getAccessToken(true);
-  const latest = await read(token);
-  const notes = { ...latest.notes, [key({ mode, code })]: note };
-  await write(token, { ...latest, updatedAt: new Date().toISOString(), notes });
-  return notes;
+  return enqueueMutation(async () => {
+    const token = await getAccessToken(true);
+    const latest = await read(token);
+    const notes = { ...latest.notes, [key({ mode, code })]: note };
+    await write(token, { ...latest, updatedAt: new Date().toISOString(), notes });
+    return notes;
+  });
 }
 
 export function imageUrlKey(mode: RemoteMode, code: string): string {
