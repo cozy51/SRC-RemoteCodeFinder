@@ -18,7 +18,7 @@ export type RemoteCode = {
 };
 
 // 表記、重複、空欄、範囲コード、備考の改行を提供データどおりに保持しています。
-// OneDrive共有URLは該当レコードの imageUrl に登録してください。
+// Google Drive共有URLは該当レコードの imageUrl に登録してください。
 export const remoteCodes: RemoteCode[] = [
   { mode: '2_MANUAL', code: '2000', command: '走行JOG (Blocking制御あり)', imageUrl: '' },
   { mode: '2_MANUAL', code: '2001', command: '走行JOG (Blocking制御なし)', imageUrl: '' },

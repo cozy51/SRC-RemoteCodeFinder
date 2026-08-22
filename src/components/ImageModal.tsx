@@ -8,7 +8,7 @@ export function ImageModal({ item, onClose }: { item: RemoteCode; onClose: () =>
         <button className="modal-close" onClick={onClose} aria-label="閉じる">× 閉じる</button>
         <p className="eyebrow">解説画像</p><h2 id="image-title"><span>{item.code}</span> {item.command}</h2>
         <img src={item.imageUrl} alt={`${item.code} ${item.command} の解説`} />
-        <a className="primary-link" href={item.imageUrl} target="_blank" rel="noreferrer">OneDriveで開く</a>
+        <a className="primary-link" href={item.imageUrl} target="_blank" rel="noreferrer">Google Driveで開く</a>
       </section>
     </div>, document.getElementById('modal-root')!,
   );
