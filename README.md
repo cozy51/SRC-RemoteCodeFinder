@@ -14,7 +14,7 @@ npm run dev
 
 提供されたSRCコード495件を収録しています。重複コード、コマンド空欄、範囲表記、備考の改行も削除・補正せず保持しています。
 
-## 解説画像の登録
+## 説明画像の登録
 
 1. 画像をGoogle Driveへアップロードします。
 2. 画像の共有設定を「リンクを知っている全員」か、アプリ利用者全員が閲覧できる設定にします。
@@ -26,7 +26,7 @@ npm run dev
 { mode: '2_MANUAL', code: '2000', command: '走行JOG (Blocking制御あり)', imageUrl: 'https://drive.google.com/file/d/FILE_ID/view?usp=sharing' },
 ```
 
-登録したURLはお気に入りと同じGoogle Drive上の `settings.json` に保存され、`remoteCodes.ts` の初期URLより優先されます。登録後は「解説画像を見る」から画像を表示でき、「削除」で画像なしの状態へ戻せます。Google Driveの通常の共有URLは、モーダル表示時に画像表示用URLへ自動変換されます。「Google Driveで開く」リンクには登録した共有URLをそのまま使用します。
+登録したURLはお気に入りと同じGoogle Drive上の `settings.json` に保存され、`remoteCodes.ts` の初期URLより優先されます。登録後は「説明画像を見る」から画像を表示でき、その他メニューの「画像を削除」で画像なしの状態へ戻せます。Google Driveの通常の共有URLは、モーダル表示時に画像表示用URLへ自動変換されます。「Google Driveで開く」リンクには登録した共有URLをそのまま使用します。
 
 ## 備考の追加・編集
 

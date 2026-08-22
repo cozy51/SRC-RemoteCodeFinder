@@ -8,6 +8,7 @@ import './styles.css';
 
 const isMode = (value: string | null): value is RemoteMode => modes.some((mode) => mode.id === value);
 const favoriteKey = ({ mode, code }: Favorite) => `${mode}:${code}`;
+const codeCollator = new Intl.Collator(undefined, { numeric: true });
 
 function App() {
   const params = new URLSearchParams(location.search);
@@ -34,7 +35,9 @@ function App() {
 
   const results = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    return remoteCodes.filter((item) => item.mode === mode && (!normalized || `${item.code}\n${item.command}\n${item.note ?? ''}`.toLocaleLowerCase().includes(normalized)));
+    return remoteCodes
+      .filter((item) => item.mode === mode && (!normalized || `${item.code}\n${item.command}\n${item.note ?? ''}`.toLocaleLowerCase().includes(normalized)))
+      .sort((a, b) => codeCollator.compare(a.code, b.code));
   }, [mode, query]);
   const favoriteSet = useMemo(() => new Set(favorites.map(favoriteKey)), [favorites]);
   const favoriteItems = favorites.flatMap((favorite) => remoteCodes.filter((item) => item.mode === favorite.mode && item.code === favorite.code));
@@ -46,8 +49,21 @@ function App() {
   async function toggleFavorite(item: RemoteCode) {
     const favorite = { mode: item.mode, code: item.code };
     const action = favoriteSet.has(favoriteKey(favorite)) ? 'remove' : 'add';
-    try { setCloudMessage('Google Driveへ保存中…'); setFavorites(await saveFavoriteChange({ favorite, action })); setCloudMessage('Google Driveと同期済み'); }
-    catch (error) { setCloudMessage(error instanceof Error ? error.message : 'お気に入りの保存に失敗しました'); }
+    const targetIsFavorite = action === 'add';
+    setFavorites((current) => action === 'add'
+      ? [...current.filter((entry) => favoriteKey(entry) !== favoriteKey(favorite)), favorite]
+      : current.filter((entry) => favoriteKey(entry) !== favoriteKey(favorite)));
+    try { setCloudMessage('Google Driveへ保存中…'); await saveFavoriteChange({ favorite, action }); setCloudMessage('Google Driveと同期済み'); }
+    catch (error) {
+      setFavorites((current) => {
+        const isCurrentlyFavorite = current.some((entry) => favoriteKey(entry) === favoriteKey(favorite));
+        if (isCurrentlyFavorite !== targetIsFavorite) return current;
+        return action === 'add'
+          ? current.filter((entry) => favoriteKey(entry) !== favoriteKey(favorite))
+          : [...current, favorite];
+      });
+      setCloudMessage(error instanceof Error ? error.message : 'お気に入りの保存に失敗しました');
+    }
   }
   function openFavorite(item: RemoteCode) { setMode(item.mode); setQuery(item.code); history.replaceState(null, '', `/?mode=${encodeURIComponent(item.mode)}&code=${encodeURIComponent(item.code)}`); window.scrollTo({ top: document.querySelector('.search-panel')?.getBoundingClientRect().top ?? 0, behavior: 'smooth' }); }
   async function copyCode(code: string) { try { await navigator.clipboard.writeText(code); setToast(`${code} をコピーしました`); } catch { setToast('コピーできませんでした'); } }
@@ -106,9 +122,9 @@ function App() {
         const note = Object.hasOwn(notes, urlKey) ? storedNote ?? undefined : item.note;
         const displayItem = imageUrl === item.imageUrl ? item : { ...item, imageUrl };
         return <article key={`${item.mode}-${item.code}-${index}`} ref={selected ? highlightedRef : undefined} className={`code-card ${item.warning ? 'warning' : ''} ${selected ? 'highlighted' : ''}`}>
-          <div className="code-top"><button className="code-number" onClick={() => copyCode(item.code)} title="クリックしてコピー">{item.code}<small>タップしてコピー</small></button><button className={`star ${favoriteSet.has(favoriteKey(item)) ? 'selected' : ''}`} onClick={() => toggleFavorite(item)} aria-label={`${item.code}をお気に入り${favoriteSet.has(favoriteKey(item)) ? '解除' : '登録'}`}>{favoriteSet.has(favoriteKey(item)) ? '★' : '☆'}</button></div>
+          <div className="code-top"><button className="code-number" onClick={() => copyCode(item.code)} title="クリックしてコピー">{item.code}<small>タップしてコピー</small></button><div className="code-tools">{imageUrl && <button className="view-image" onClick={() => setImageItem(displayItem)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4zM7 15l3-3 2.5 2.5 2-2 2.5 2.5M8.5 9a1 1 0 1 0 0 .01" /></svg><span>説明画像を見る</span></button>}<button className={`star ${favoriteSet.has(favoriteKey(item)) ? 'selected' : ''}`} onClick={() => toggleFavorite(item)} aria-label={`${item.code}をお気に入り${favoriteSet.has(favoriteKey(item)) ? '解除' : '登録'}`}>{favoriteSet.has(favoriteKey(item)) ? '★' : '☆'}</button></div></div>
           {item.warning && <span className="warning-label">⚠ 注意が必要なコード</span>}<h3>{item.command || '（コマンド空欄）'}</h3>{note && <p className="note">{note}</p>}<button className="note-edit" onClick={() => setNoteEditor({ item, value: note ?? '' })}>{note ? '備考を編集' : '備考を追加'}</button>
-          <div className="card-footer"><span>{item.mode}</span><div className="image-actions">{imageUrl && <button onClick={() => setImageItem(displayItem)}>解説画像を見る</button>}<button onClick={() => prepareImageUrl(item)}>{imageUrl ? '画像URLを変更' : '画像URLを登録'}</button>{imageUrl && <button className="image-remove" onClick={() => removeImageUrl(item)}>削除</button>}</div></div>
+          <div className="card-footer"><span>{item.mode}</span><div className="image-actions"><button onClick={() => prepareImageUrl(item)}>{imageUrl ? '画像URLを変更' : '画像URLを登録'}</button>{imageUrl && <details className="more-menu"><summary aria-label={`${item.code}のその他の画像操作`}>•••</summary><div><button className="image-remove" onClick={() => removeImageUrl(item)}>画像を削除</button></div></details>}</div></div>
         </article>;
       })}</div>
       {!results.length && <div className="no-results"><strong>該当するコードがありません</strong><p>検索語を変えるか、検索をクリアしてください。</p></div>}
