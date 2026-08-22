@@ -2,20 +2,60 @@ import { getAccessToken } from './auth';
 import type { RemoteMode } from '../data/remoteCodes';
 
 export type Favorite = { mode: RemoteMode; code: string };
-type Settings = { updatedAt: string; favorites: Favorite[] };
+export type ImageUrls = Record<string, string | null>;
+export type NoteOverrides = Record<string, string | null>;
+export type CloudSettings = { favorites: Favorite[]; imageUrls: ImageUrls; notes: NoteOverrides };
+type Settings = CloudSettings & { updatedAt: string };
 type DriveFile = { id: string };
 export type FavoriteChange = { favorite: Favorite; action: 'add' | 'remove' };
 
 const driveApi = 'https://www.googleapis.com/drive/v3';
 const driveUploadApi = 'https://www.googleapis.com/upload/drive/v3';
-const folderId = '1SWmOnYn98EN5nZs7Jsi3vBLkuJa4B_O6';
+const webAppsDataFolderId = '1SWmOnYn98EN5nZs7Jsi3vBLkuJa4B_O6';
+const appFolderName = 'SRC-RemoteCodeFinder';
+const appFolderIdKey = 'src-google-drive-app-folder-id';
 const settingsFileName = 'settings.json';
 const settingsFileIdKey = 'src-google-drive-settings-file-id';
-const emptySettings = (): Settings => ({ updatedAt: new Date(0).toISOString(), favorites: [] });
+const emptySettings = (): Settings => ({ updatedAt: new Date(0).toISOString(), favorites: [], imageUrls: {}, notes: {} });
 const key = (favorite: Favorite) => `${favorite.mode}\u0000${favorite.code}`;
 const headers = (token: string) => ({ Authorization: `Bearer ${token}` });
 
+async function findAppFolder(token: string): Promise<string> {
+  const storedId = localStorage.getItem(appFolderIdKey);
+  if (storedId) {
+    const response = await fetch(`${driveApi}/files/${encodeURIComponent(storedId)}?fields=id,name,mimeType,trashed,parents`, { headers: headers(token), cache: 'no-store' });
+    if (response.ok) {
+      const folder = await response.json() as { id: string; name: string; mimeType: string; trashed?: boolean; parents?: string[] };
+      if (!folder.trashed && folder.name === appFolderName && folder.mimeType === 'application/vnd.google-apps.folder' && folder.parents?.includes(webAppsDataFolderId)) return folder.id;
+    } else if (response.status !== 404) {
+      throw new Error(`Google Driveの保存先フォルダを確認できませんでした (${response.status})`);
+    }
+    localStorage.removeItem(appFolderIdKey);
+  }
+
+  const query = `'${webAppsDataFolderId}' in parents and name = '${appFolderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+  const params = new URLSearchParams({ q: query, spaces: 'drive', fields: 'files(id)', orderBy: 'createdTime', pageSize: '1' });
+  const search = await fetch(`${driveApi}/files?${params}`, { headers: headers(token), cache: 'no-store' });
+  if (!search.ok) throw new Error(`Google Driveから保存先フォルダを検索できませんでした (${search.status})`);
+  const existing = (await search.json() as { files?: DriveFile[] }).files?.[0]?.id;
+  if (existing) {
+    localStorage.setItem(appFolderIdKey, existing);
+    return existing;
+  }
+
+  const create = await fetch(`${driveApi}/files?fields=id`, {
+    method: 'POST',
+    headers: { ...headers(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: appFolderName, mimeType: 'application/vnd.google-apps.folder', parents: [webAppsDataFolderId] }),
+  });
+  if (!create.ok) throw new Error(`Google Driveに保存先フォルダを作成できませんでした (${create.status})`);
+  const created = await create.json() as DriveFile;
+  localStorage.setItem(appFolderIdKey, created.id);
+  return created.id;
+}
+
 async function findSettingsFile(token: string): Promise<string | undefined> {
+  const folderId = await findAppFolder(token);
   const storedId = localStorage.getItem(settingsFileIdKey);
   if (storedId) {
     const response = await fetch(`${driveApi}/files/${encodeURIComponent(storedId)}?fields=id,trashed,parents`, { headers: headers(token), cache: 'no-store' });
@@ -35,7 +75,20 @@ async function findSettingsFile(token: string): Promise<string | undefined> {
   const result = await response.json() as { files?: DriveFile[] };
   const fileId = result.files?.[0]?.id;
   if (fileId) localStorage.setItem(settingsFileIdKey, fileId);
-  return fileId;
+  if (fileId) return fileId;
+
+  // 旧バージョンがWebAppsData直下に作成したsettings.jsonは、初回アクセス時にアプリフォルダへ移動します。
+  const legacyQuery = `'${webAppsDataFolderId}' in parents and name = '${settingsFileName}' and trashed = false`;
+  const legacyParams = new URLSearchParams({ q: legacyQuery, spaces: 'drive', fields: 'files(id)', orderBy: 'modifiedTime desc', pageSize: '1' });
+  const legacySearch = await fetch(`${driveApi}/files?${legacyParams}`, { headers: headers(token), cache: 'no-store' });
+  if (!legacySearch.ok) throw new Error(`Google Driveから旧設定ファイルを検索できませんでした (${legacySearch.status})`);
+  const legacyId = (await legacySearch.json() as { files?: DriveFile[] }).files?.[0]?.id;
+  if (!legacyId) return undefined;
+  const moveParams = new URLSearchParams({ addParents: folderId, removeParents: webAppsDataFolderId, fields: 'id' });
+  const move = await fetch(`${driveApi}/files/${encodeURIComponent(legacyId)}?${moveParams}`, { method: 'PATCH', headers: headers(token) });
+  if (!move.ok) throw new Error(`Google Driveの設定ファイルを移動できませんでした (${move.status})`);
+  localStorage.setItem(settingsFileIdKey, legacyId);
+  return legacyId;
 }
 
 async function read(token: string): Promise<Settings> {
@@ -48,10 +101,16 @@ async function read(token: string): Promise<Settings> {
   }
   if (!response.ok) throw new Error(`Google Driveから取得できませんでした (${response.status})`);
   const value = await response.json() as Partial<Settings>;
-  return { updatedAt: value.updatedAt ?? new Date(0).toISOString(), favorites: Array.isArray(value.favorites) ? value.favorites : [] };
+  return {
+    updatedAt: value.updatedAt ?? new Date(0).toISOString(),
+    favorites: Array.isArray(value.favorites) ? value.favorites : [],
+    imageUrls: value.imageUrls && typeof value.imageUrls === 'object' ? value.imageUrls : {},
+    notes: value.notes && typeof value.notes === 'object' ? value.notes : {},
+  };
 }
 
 async function write(token: string, settings: Settings): Promise<void> {
+  const folderId = await findAppFolder(token);
   const fileId = await findSettingsFile(token);
   const body = JSON.stringify(settings, null, 2);
   if (fileId) {
@@ -76,6 +135,11 @@ export async function loadFavorites(interactive = false): Promise<Favorite[]> {
   return (await read(await getAccessToken(interactive))).favorites;
 }
 
+export async function loadCloudSettings(interactive = false): Promise<CloudSettings> {
+  const { favorites, imageUrls, notes } = await read(await getAccessToken(interactive));
+  return { favorites, imageUrls, notes };
+}
+
 // 常に最新ファイルを読み、今回の操作だけを適用するため、古い画面状態による全上書きを避けます。
 export async function saveFavoriteChange(change: FavoriteChange): Promise<Favorite[]> {
   const token = await getAccessToken(true);
@@ -83,7 +147,27 @@ export async function saveFavoriteChange(change: FavoriteChange): Promise<Favori
   const merged = new Map(latest.favorites.map((favorite) => [key(favorite), favorite]));
   if (change.action === 'add') merged.set(key(change.favorite), change.favorite);
   else merged.delete(key(change.favorite));
-  const settings: Settings = { updatedAt: new Date().toISOString(), favorites: [...merged.values()] };
+  const settings: Settings = { ...latest, updatedAt: new Date().toISOString(), favorites: [...merged.values()] };
   await write(token, settings);
   return settings.favorites;
+}
+
+export async function saveImageUrl(mode: RemoteMode, code: string, imageUrl: string | null): Promise<ImageUrls> {
+  const token = await getAccessToken(true);
+  const latest = await read(token);
+  const imageUrls = { ...latest.imageUrls, [key({ mode, code })]: imageUrl };
+  await write(token, { ...latest, updatedAt: new Date().toISOString(), imageUrls });
+  return imageUrls;
+}
+
+export async function saveNote(mode: RemoteMode, code: string, note: string | null): Promise<NoteOverrides> {
+  const token = await getAccessToken(true);
+  const latest = await read(token);
+  const notes = { ...latest.notes, [key({ mode, code })]: note };
+  await write(token, { ...latest, updatedAt: new Date().toISOString(), notes });
+  return notes;
+}
+
+export function imageUrlKey(mode: RemoteMode, code: string): string {
+  return key({ mode, code });
 }

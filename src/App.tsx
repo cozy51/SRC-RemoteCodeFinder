@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImageModal } from './components/ImageModal';
 import { modes, remoteCodes, type RemoteCode, type RemoteMode } from './data/remoteCodes';
 import { isCloudConfigured } from './services/auth';
-import { loadFavorites, saveFavoriteChange, type Favorite } from './services/favoritesStorage';
+import { imageUrlKey, loadCloudSettings, saveFavoriteChange, saveImageUrl, saveNote, type Favorite, type ImageUrls, type NoteOverrides } from './services/favoritesStorage';
+import { getGoogleDriveFileId } from './services/googleDriveUrl';
 import './styles.css';
 
 const isMode = (value: string | null): value is RemoteMode => modes.some((mode) => mode.id === value);
@@ -15,13 +16,21 @@ function App() {
   const [mode, setMode] = useState<RemoteMode>(initialMode);
   const [query, setQuery] = useState(directCode ?? '');
   const [favorites, setFavorites] = useState<Favorite[]>([]);
+  const [imageUrls, setImageUrls] = useState<ImageUrls>({});
+  const [notes, setNotes] = useState<NoteOverrides>({});
   const [cloudMessage, setCloudMessage] = useState(isCloudConfigured ? 'Google Driveに接続してお気に入りを同期できます' : 'Google Drive連携は未設定です');
   const [toast, setToast] = useState('');
   const [imageItem, setImageItem] = useState<RemoteCode>();
+  const [pendingImage, setPendingImage] = useState<{ item: RemoteCode; url: string }>();
+  const [noteEditor, setNoteEditor] = useState<{ item: RemoteCode; value: string }>();
   const highlightedRef = useRef<HTMLElement>(null);
 
   useEffect(() => { if (directCode) highlightedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [directCode]);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 2200); return () => clearTimeout(timer); }, [toast]);
+  useEffect(() => {
+    if (!isCloudConfigured) return;
+    loadCloudSettings(false).then((settings) => { setFavorites(settings.favorites); setImageUrls(settings.imageUrls); setNotes(settings.notes); setCloudMessage('Google Driveと同期済み'); }).catch(() => undefined);
+  }, []);
 
   const results = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -31,7 +40,7 @@ function App() {
   const favoriteItems = favorites.flatMap((favorite) => remoteCodes.filter((item) => item.mode === favorite.mode && item.code === favorite.code));
 
   async function connect() {
-    try { setFavorites(await loadFavorites(true)); setCloudMessage('Google Driveと同期済み'); }
+    try { const settings = await loadCloudSettings(true); setFavorites(settings.favorites); setImageUrls(settings.imageUrls); setNotes(settings.notes); setCloudMessage('Google Driveと同期済み'); }
     catch (error) { setCloudMessage(error instanceof Error ? error.message : 'お気に入りを取得できませんでした'); }
   }
   async function toggleFavorite(item: RemoteCode) {
@@ -42,6 +51,39 @@ function App() {
   }
   function openFavorite(item: RemoteCode) { setMode(item.mode); setQuery(item.code); history.replaceState(null, '', `/?mode=${encodeURIComponent(item.mode)}&code=${encodeURIComponent(item.code)}`); window.scrollTo({ top: document.querySelector('.search-panel')?.getBoundingClientRect().top ?? 0, behavior: 'smooth' }); }
   async function copyCode(code: string) { try { await navigator.clipboard.writeText(code); setToast(`${code} をコピーしました`); } catch { setToast('コピーできませんでした'); } }
+  async function prepareImageUrl(item: RemoteCode) {
+    try {
+      const url = (await navigator.clipboard.readText()).trim();
+      if (!url) { setToast('クリップボードにURLがありません'); return; }
+      if (!getGoogleDriveFileId(url)) { setToast('Google Driveの共有URLをコピーしてから、もう一度お試しください'); return; }
+      setPendingImage({ item, url });
+    } catch { setToast('クリップボードを読み取れませんでした'); }
+  }
+  async function registerImageUrl() {
+    if (!pendingImage) return;
+    try {
+      setCloudMessage('Google Driveへ保存中…');
+      setImageUrls(await saveImageUrl(pendingImage.item.mode, pendingImage.item.code, pendingImage.url));
+      setPendingImage(undefined); setCloudMessage('Google Driveと同期済み'); setToast('画像URLを登録しました');
+    } catch (error) { setCloudMessage(error instanceof Error ? error.message : '画像URLを保存できませんでした'); }
+  }
+  async function removeImageUrl(item: RemoteCode) {
+    if (!window.confirm(`${item.code} の画像URLを削除しますか？`)) return;
+    try {
+      setCloudMessage('Google Driveへ保存中…');
+      setImageUrls(await saveImageUrl(item.mode, item.code, null));
+      setCloudMessage('Google Driveと同期済み'); setToast('画像URLを削除しました');
+    } catch (error) { setCloudMessage(error instanceof Error ? error.message : '画像URLを削除できませんでした'); }
+  }
+  async function saveEditedNote() {
+    if (!noteEditor) return;
+    try {
+      const note = noteEditor.value.trim() || null;
+      setCloudMessage('Google Driveへ保存中…');
+      setNotes(await saveNote(noteEditor.item.mode, noteEditor.item.code, note));
+      setNoteEditor(undefined); setCloudMessage('Google Driveと同期済み'); setToast(note ? '備考を保存しました' : '備考を削除しました');
+    } catch (error) { setCloudMessage(error instanceof Error ? error.message : '備考を保存できませんでした'); }
+  }
 
   return <>
     <header><div className="header-inner"><div className="brand"><img src="/app-icon.svg" alt="" width="76" height="76" /><div><p className="eyebrow">FIELD TOOL</p><h1>SRC Remote Code Finder</h1><p className="subtitle">SRCリモコン コード検索</p></div></div><button className="cloud-button" onClick={connect}>☁ Google Drive接続</button></div></header>
@@ -57,15 +99,23 @@ function App() {
       </section>
       <div className="code-grid">{results.map((item, index) => {
         const selected = directCode === item.code;
+        const urlKey = imageUrlKey(item.mode, item.code);
+        const storedImageUrl = imageUrls[urlKey];
+        const imageUrl = Object.hasOwn(imageUrls, urlKey) ? storedImageUrl ?? undefined : item.imageUrl;
+        const storedNote = notes[urlKey];
+        const note = Object.hasOwn(notes, urlKey) ? storedNote ?? undefined : item.note;
+        const displayItem = imageUrl === item.imageUrl ? item : { ...item, imageUrl };
         return <article key={`${item.mode}-${item.code}-${index}`} ref={selected ? highlightedRef : undefined} className={`code-card ${item.warning ? 'warning' : ''} ${selected ? 'highlighted' : ''}`}>
           <div className="code-top"><button className="code-number" onClick={() => copyCode(item.code)} title="クリックしてコピー">{item.code}<small>タップしてコピー</small></button><button className={`star ${favoriteSet.has(favoriteKey(item)) ? 'selected' : ''}`} onClick={() => toggleFavorite(item)} aria-label={`${item.code}をお気に入り${favoriteSet.has(favoriteKey(item)) ? '解除' : '登録'}`}>{favoriteSet.has(favoriteKey(item)) ? '★' : '☆'}</button></div>
-          {item.warning && <span className="warning-label">⚠ 注意が必要なコード</span>}<h3>{item.command || '（コマンド空欄）'}</h3>{item.note && <p className="note">{item.note}</p>}
-          <div className="card-footer"><span>{item.mode}</span>{item.imageUrl ? <button onClick={() => setImageItem(item)}>解説画像を見る</button> : <span className="no-image">画像なし</span>}</div>
+          {item.warning && <span className="warning-label">⚠ 注意が必要なコード</span>}<h3>{item.command || '（コマンド空欄）'}</h3>{note && <p className="note">{note}</p>}<button className="note-edit" onClick={() => setNoteEditor({ item, value: note ?? '' })}>{note ? '備考を編集' : '備考を追加'}</button>
+          <div className="card-footer"><span>{item.mode}</span><div className="image-actions">{imageUrl && <button onClick={() => setImageItem(displayItem)}>解説画像を見る</button>}<button onClick={() => prepareImageUrl(item)}>{imageUrl ? '画像URLを変更' : '画像URLを登録'}</button>{imageUrl && <button className="image-remove" onClick={() => removeImageUrl(item)}>削除</button>}</div></div>
         </article>;
       })}</div>
       {!results.length && <div className="no-results"><strong>該当するコードがありません</strong><p>検索語を変えるか、検索をクリアしてください。</p></div>}
     </main>
-    {toast && <div className="toast" role="status">✓ {toast}</div>}{imageItem && <ImageModal item={imageItem} onClose={() => setImageItem(undefined)} />}
+    {toast && <div className="toast" role="status">{toast}</div>}{imageItem && <ImageModal item={imageItem} onClose={() => setImageItem(undefined)} />}
+    {pendingImage && <div className="modal-backdrop" role="presentation"><section className="modal image-confirm" role="dialog" aria-modal="true" aria-labelledby="image-confirm-title"><p className="eyebrow">画像URLの確認</p><h2 id="image-confirm-title">画像URLを登録しますか？</h2><dl><dt>コード</dt><dd>{pendingImage.item.code}</dd><dt>コマンド</dt><dd>{pendingImage.item.command || '（コマンド空欄）'}</dd></dl><p className="confirm-url">{pendingImage.url}</p><div className="confirm-actions"><button onClick={() => setPendingImage(undefined)}>キャンセル</button><button className="confirm-primary" onClick={registerImageUrl}>登録</button></div></section></div>}
+    {noteEditor && <div className="modal-backdrop" role="presentation"><section className="modal note-editor" role="dialog" aria-modal="true" aria-labelledby="note-editor-title"><p className="eyebrow">備考の編集</p><h2 id="note-editor-title"><span>{noteEditor.item.code}</span> {noteEditor.item.command || '（コマンド空欄）'}</h2><label htmlFor="note-value">備考</label><textarea id="note-value" value={noteEditor.value} onChange={(event) => setNoteEditor({ ...noteEditor, value: event.target.value })} placeholder="備考を入力してください" autoFocus /><p className="editor-help">空欄で保存すると備考を削除できます。</p><div className="confirm-actions"><button onClick={() => setNoteEditor(undefined)}>キャンセル</button><button className="confirm-primary" onClick={saveEditedNote}>保存</button></div></section></div>}
   </>;
 }
 export default App;
