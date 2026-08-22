@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">SRC Remote Code Finder app icon</title>
+  <desc id="desc">A remote control combined with a search lens</desc>
+  <defs>
+    <linearGradient id="background" x1="64" y1="38" x2="455" y2="488" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#197b8d"/>
+      <stop offset="1" stop-color="#0b3442"/>
+    </linearGradient>
+    <filter id="shadow" x="-.3" y="-.2" width="1.7" height="1.7">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#061f29" flood-opacity=".3"/>
+    </filter>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="128" fill="url(#background)"/>
+  <path d="M128 148c0-28 22-50 50-50h144c28 0 50 22 50 50v216c0 28-22 50-50 50H178c-28 0-50-22-50-50z" fill="#fff" filter="url(#shadow)"/>
+  <path d="M184 170h104M184 218h72" stroke="#176879" stroke-width="25" stroke-linecap="round"/>
+  <circle cx="198" cy="306" r="24" fill="#46c9bf"/>
+  <circle cx="270" cy="306" r="24" fill="#d7e5e7"/>
+  <path d="m352 340 72 72" stroke="#fff" stroke-width="44" stroke-linecap="round"/>
+  <circle cx="330" cy="318" r="77" fill="#0d4553" stroke="#52d4ca" stroke-width="31"/>
+  <circle cx="330" cy="318" r="28" fill="#79e4dc"/>
+</svg>

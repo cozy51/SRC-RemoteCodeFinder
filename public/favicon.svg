@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">SRC Remote Code Finder</title>
+  <defs>
+    <linearGradient id="bg" x1="8" y1="5" x2="57" y2="61" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#176f80"/>
+      <stop offset="1" stop-color="#0c3947"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="22" y1="18" x2="43" y2="46" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7ce4dc"/>
+      <stop offset="1" stop-color="#34b9b1"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#bg)"/>
+  <path d="M16 18.5A4.5 4.5 0 0 1 20.5 14h18a4.5 4.5 0 0 1 4.5 4.5v27a4.5 4.5 0 0 1-4.5 4.5h-18a4.5 4.5 0 0 1-4.5-4.5z" fill="#fff" fill-opacity=".96"/>
+  <path d="M23 22h13M23 28h9" stroke="#176678" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="25" cy="38" r="3" fill="#42c3ba"/>
+  <circle cx="34" cy="38" r="3" fill="#d6e5e7"/>
+  <path d="m41.5 41.5 7.2 7.2" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="38" cy="38" r="8.5" fill="#0d4654" stroke="url(#beam)" stroke-width="4"/>
+  <circle cx="38" cy="38" r="3.2" fill="#7ce4dc"/>
+</svg>
