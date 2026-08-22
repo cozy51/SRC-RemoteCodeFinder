@@ -30,6 +30,7 @@ function App() {
   const highlightedRef = useRef<HTMLElement>(null);
   const favoriteRevision = useRef(0);
   const favoritesRef = useRef<Favorite[]>([]);
+  const imageUrlRevisions = useRef(new Map<string, number>());
 
   useEffect(() => { if (directCode) highlightedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [directCode]);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 2200); return () => clearTimeout(timer); }, [toast]);
@@ -98,11 +99,32 @@ function App() {
   }
   async function registerImageUrl() {
     if (!pendingImage) return;
+    const { item, url } = pendingImage;
+    const urlKey = imageUrlKey(item.mode, item.code);
+    const previousUrl = Object.hasOwn(imageUrls, urlKey) ? imageUrls[urlKey] : undefined;
+    const revision = (imageUrlRevisions.current.get(urlKey) ?? 0) + 1;
+    imageUrlRevisions.current.set(urlKey, revision);
+
+    // Close the confirmation immediately and show the image action while Drive saves in the background.
+    setImageUrls((current) => ({ ...current, [urlKey]: url }));
+    setPendingImage(undefined);
+    setToast('画像URLを登録しています…');
     try {
       setCloudState('syncing'); setCloudMessage('Google Driveへ保存中…');
-      setImageUrls(await saveImageUrl(pendingImage.item.mode, pendingImage.item.code, pendingImage.url));
-      setPendingImage(undefined); setCloudMessage('Google Driveと同期済み'); setCloudState('synced'); setToast('画像URLを登録しました');
-    } catch (error) { setCloudMessage(error instanceof Error ? error.message : '画像URLを保存できませんでした'); setCloudState('unsynced'); }
+      const savedImageUrls = await saveImageUrl(item.mode, item.code, url);
+      if (imageUrlRevisions.current.get(urlKey) === revision) setImageUrls(savedImageUrls);
+      setCloudMessage('Google Driveと同期済み'); setCloudState('synced'); setToast('画像URLを登録しました');
+    } catch (error) {
+      if (imageUrlRevisions.current.get(urlKey) === revision) {
+        setImageUrls((current) => {
+          const restored = { ...current };
+          if (previousUrl === undefined) delete restored[urlKey];
+          else restored[urlKey] = previousUrl;
+          return restored;
+        });
+      }
+      setCloudMessage(error instanceof Error ? error.message : '画像URLを保存できませんでした'); setCloudState('unsynced'); setToast('画像URLを登録できませんでした');
+    }
   }
   async function removeImageUrl(item: RemoteCode) {
     if (!window.confirm(`${item.code} の画像URLを削除しますか？`)) return;
