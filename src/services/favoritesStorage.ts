@@ -131,6 +131,27 @@ async function write(token: string, settings: Settings): Promise<void> {
   localStorage.setItem(settingsFileIdKey, created.id);
 }
 
+async function write(token: string, settings: Settings): Promise<void> {
+  const fileId = await findSettingsFile(token);
+  const body = JSON.stringify(settings, null, 2);
+  if (fileId) {
+    const response = await fetch(`${driveUploadApi}/files/${encodeURIComponent(fileId)}?uploadType=media`, {
+      method: 'PATCH', headers: { ...headers(token), 'Content-Type': 'application/json' }, body,
+    });
+    if (!response.ok) throw new Error(`Google Driveへ上書きできませんでした (${response.status})`);
+    return;
+  }
+
+  const boundary = `src-${crypto.randomUUID()}`;
+  const multipartBody = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: settingsFileName, parents: [folderId], mimeType: 'application/json' })}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
+  const response = await fetch(`${driveUploadApi}/files?uploadType=multipart&fields=id`, {
+    method: 'POST', headers: { ...headers(token), 'Content-Type': `multipart/related; boundary=${boundary}` }, body: multipartBody,
+  });
+  if (!response.ok) throw new Error(`Google Driveへ保存できませんでした (${response.status})`);
+  const created = await response.json() as DriveFile;
+  localStorage.setItem(settingsFileIdKey, created.id);
+}
+
 export async function loadFavorites(interactive = false): Promise<Favorite[]> {
   return (await read(await getAccessToken(interactive))).favorites;
 }
