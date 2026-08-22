@@ -3,8 +3,9 @@ import type { RemoteMode } from '../data/remoteCodes';
 
 export type Favorite = { mode: RemoteMode; code: string };
 export type ImageUrls = Record<string, string | null>;
+export type CommandOverrides = Record<string, string | null>;
 export type NoteOverrides = Record<string, string | null>;
-export type CloudSettings = { favorites: Favorite[]; imageUrls: ImageUrls; notes: NoteOverrides; deletedCards: string[] };
+export type CloudSettings = { favorites: Favorite[]; imageUrls: ImageUrls; commands: CommandOverrides; notes: NoteOverrides; deletedCards: string[] };
 type Settings = CloudSettings & { updatedAt: string };
 type DriveFile = { id: string };
 export type FavoriteChange = { favorite: Favorite; action: 'add' | 'remove' };
@@ -16,7 +17,7 @@ const appFolderName = 'SRC-RemoteCodeFinder';
 const appFolderIdKey = 'src-google-drive-app-folder-id';
 const settingsFileName = 'settings.json';
 const settingsFileIdKey = 'src-google-drive-settings-file-id';
-const emptySettings = (): Settings => ({ updatedAt: new Date(0).toISOString(), favorites: [], imageUrls: {}, notes: {}, deletedCards: [] });
+const emptySettings = (): Settings => ({ updatedAt: new Date(0).toISOString(), favorites: [], imageUrls: {}, commands: {}, notes: {}, deletedCards: [] });
 const key = (favorite: Favorite) => `${favorite.mode}\u0000${favorite.code}`;
 const headers = (token: string) => ({ Authorization: `Bearer ${token}` });
 let mutationQueue: Promise<void> = Promise.resolve();
@@ -113,6 +114,7 @@ async function read(token: string): Promise<Settings> {
     updatedAt: value.updatedAt ?? new Date(0).toISOString(),
     favorites: Array.isArray(value.favorites) ? value.favorites : [],
     imageUrls: value.imageUrls && typeof value.imageUrls === 'object' ? value.imageUrls : {},
+    commands: value.commands && typeof value.commands === 'object' ? value.commands : {},
     notes: value.notes && typeof value.notes === 'object' ? value.notes : {},
     deletedCards: Array.isArray(value.deletedCards) ? value.deletedCards : [],
   };
@@ -145,8 +147,8 @@ export async function loadFavorites(interactive = false): Promise<Favorite[]> {
 }
 
 export async function loadCloudSettings(interactive = false): Promise<CloudSettings> {
-  const { favorites, imageUrls, notes, deletedCards } = await read(await getAccessToken(interactive));
-  return { favorites, imageUrls, notes, deletedCards };
+  const { favorites, imageUrls, commands, notes, deletedCards } = await read(await getAccessToken(interactive));
+  return { favorites, imageUrls, commands, notes, deletedCards };
 }
 
 // 常に最新ファイルを読み、今回の操作だけを適用するため、古い画面状態による全上書きを避けます。
@@ -180,6 +182,16 @@ export async function saveNote(mode: RemoteMode, code: string, note: string | nu
     const notes = { ...latest.notes, [key({ mode, code })]: note };
     await write(token, { ...latest, updatedAt: new Date().toISOString(), notes });
     return notes;
+  });
+}
+
+export async function saveCommand(mode: RemoteMode, code: string, command: string | null): Promise<CommandOverrides> {
+  return enqueueMutation(async () => {
+    const token = await getAccessToken(true);
+    const latest = await read(token);
+    const commands = { ...latest.commands, [key({ mode, code })]: command };
+    await write(token, { ...latest, updatedAt: new Date().toISOString(), commands });
+    return commands;
   });
 }
 
