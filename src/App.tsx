@@ -45,7 +45,9 @@ function App() {
       .sort((a, b) => codeCollator.compare(a.code, b.code));
   }, [mode, query]);
   const favoriteSet = useMemo(() => new Set(favorites.map(favoriteKey)), [favorites]);
-  const favoriteItems = favorites.flatMap((favorite) => remoteCodes.filter((item) => item.mode === mode && item.mode === favorite.mode && item.code === favorite.code));
+  const favoriteItems = favorites
+    .flatMap((favorite) => remoteCodes.filter((item) => item.mode === mode && item.mode === favorite.mode && item.code === favorite.code))
+    .sort((a, b) => codeCollator.compare(a.code, b.code));
 
   async function connect() {
     const revision = favoriteRevision.current;
