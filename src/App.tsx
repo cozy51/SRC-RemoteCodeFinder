@@ -8,6 +8,7 @@ import './styles.css';
 
 const isMode = (value: string | null): value is RemoteMode => modes.some((mode) => mode.id === value);
 const favoriteKey = ({ mode, code }: Favorite) => `${mode}:${code}`;
+const codeCollator = new Intl.Collator(undefined, { numeric: true });
 
 function App() {
   const params = new URLSearchParams(location.search);
@@ -34,7 +35,9 @@ function App() {
 
   const results = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    return remoteCodes.filter((item) => item.mode === mode && (!normalized || `${item.code}\n${item.command}\n${item.note ?? ''}`.toLocaleLowerCase().includes(normalized)));
+    return remoteCodes
+      .filter((item) => item.mode === mode && (!normalized || `${item.code}\n${item.command}\n${item.note ?? ''}`.toLocaleLowerCase().includes(normalized)))
+      .sort((a, b) => codeCollator.compare(a.code, b.code));
   }, [mode, query]);
   const favoriteSet = useMemo(() => new Set(favorites.map(favoriteKey)), [favorites]);
   const favoriteItems = favorites.flatMap((favorite) => remoteCodes.filter((item) => item.mode === favorite.mode && item.code === favorite.code));
