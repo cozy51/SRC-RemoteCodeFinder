@@ -10,6 +10,7 @@ type GoogleAccounts = {
     initTokenClient: (config: {
       client_id: string;
       scope: string;
+      include_granted_scopes?: boolean;
       callback: (response: TokenResponse) => void;
       error_callback: () => void;
     }) => TokenClient;
@@ -51,6 +52,8 @@ export async function getAccessToken(interactive = false): Promise<string> {
     const client = window.google!.accounts.oauth2.initTokenClient({
       client_id: clientId,
       scope,
+      // 同じOAuthクライアントで過去に許可された別スコープ(YouTube等)を混ぜない
+      include_granted_scopes: false,
       callback: (response) => {
         if (!response.access_token) {
           reject(new Error(response.error ? `Google認証に失敗しました (${response.error})` : 'Google認証に失敗しました'));
